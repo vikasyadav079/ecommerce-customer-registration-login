@@ -1,0 +1,46 @@
+{
+  "dashboard": {
+    "title": "Kafka Events",
+    "uid": "kafka-events",
+    "tags": ["ecommerce", "kafka"],
+    "timezone": "UTC",
+    "refresh": "10s",
+    "panels": [
+      {
+        "title": "Publish Rate by Topic",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {"expr": "rate(kafka_producer_record_send_total[5m])", "legendFormat": "{{topic}}"}
+        ]
+      },
+      {
+        "title": "Consumer Lag by Topic",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {"expr": "kafka_consumer_lag", "legendFormat": "{{topic}} / {{consumer_group}}"}
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 5000, "color": "yellow"},
+                {"value": 10000, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "DLT (Dead Letter Topic) Volume",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+        "targets": [
+          {"expr": "rate(kafka_producer_record_send_total{topic=~\".*\\\\.DLT\"}[5m])", "legendFormat": "{{topic}}"}
+        ]
+      }
+    ]
+  }
+}

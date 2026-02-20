@@ -1,0 +1,136 @@
+---
+# Namespace-wide STRICT mTLS policy
+# All pods in ecommerce-ciam must use mutual TLS — no plaintext traffic permitted
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: ecommerce-ciam-strict-mtls
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+    app.kubernetes.io/component: security
+spec:
+  mtls:
+    mode: STRICT
+
+---
+# Per-service STRICT mTLS — identity-service
+# Redundant with namespace policy but explicit for compliance documentation
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: identity-service-mtls
+  namespace: ecommerce-ciam
+  labels:
+    app: identity-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: identity-service
+  mtls:
+    mode: STRICT
+  # Allow management port to be accessed without mTLS from Prometheus scraper
+  portLevelMtls:
+    8081:
+      mode: PERMISSIVE
+
+---
+# Per-service STRICT mTLS — session-service
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: session-service-mtls
+  namespace: ecommerce-ciam
+  labels:
+    app: session-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: session-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8081:
+      mode: PERMISSIVE
+
+---
+# Per-service STRICT mTLS — risk-engine
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: risk-engine-mtls
+  namespace: ecommerce-ciam
+  labels:
+    app: risk-engine
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: risk-engine
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8081:
+      mode: PERMISSIVE
+
+---
+# Per-service STRICT mTLS — notification-service
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: notification-service-mtls
+  namespace: ecommerce-ciam
+  labels:
+    app: notification-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: notification-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8081:
+      mode: PERMISSIVE
+
+---
+# Per-service STRICT mTLS — audit-service
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: audit-service-mtls
+  namespace: ecommerce-ciam
+  labels:
+    app: audit-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: audit-service
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8081:
+      mode: PERMISSIVE
+
+---
+# Per-service STRICT mTLS — api-gateway
+apiVersion: security.istio.io/v1beta1
+kind: PeerAuthentication
+metadata:
+  name: api-gateway-mtls
+  namespace: ecommerce-ciam
+  labels:
+    app: api-gateway
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  mtls:
+    mode: STRICT
+  portLevelMtls:
+    8081:
+      mode: PERMISSIVE

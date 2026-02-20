@@ -1,0 +1,49 @@
+{
+  "dashboard": {
+    "title": "Infrastructure",
+    "uid": "infrastructure",
+    "tags": ["ecommerce", "infrastructure"],
+    "timezone": "UTC",
+    "refresh": "10s",
+    "panels": [
+      {
+        "title": "HikariCP Active Connections",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {"expr": "hikaricp_connections_active", "legendFormat": "Active"},
+          {"expr": "hikaricp_connections_max", "legendFormat": "Max"}
+        ]
+      },
+      {
+        "title": "JVM Memory Usage",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {"expr": "jvm_memory_used_bytes{area=\"heap\"}", "legendFormat": "Heap Used"},
+          {"expr": "jvm_memory_max_bytes{area=\"heap\"}", "legendFormat": "Heap Max"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "bytes"}}
+      },
+      {
+        "title": "CPU Usage",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {"expr": "process_cpu_usage", "legendFormat": "Process CPU"},
+          {"expr": "system_cpu_usage", "legendFormat": "System CPU"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "percentunit"}}
+      },
+      {
+        "title": "GC Pause Duration",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {"expr": "rate(jvm_gc_pause_seconds_sum[5m]) / rate(jvm_gc_pause_seconds_count[5m])", "legendFormat": "Avg GC Pause"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      }
+    ]
+  }
+}

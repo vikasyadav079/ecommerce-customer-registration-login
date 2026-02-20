@@ -1,0 +1,57 @@
+{
+  "dashboard": {
+    "title": "Auth SLO Dashboard",
+    "uid": "auth-slo",
+    "tags": ["ecommerce", "slo"],
+    "timezone": "UTC",
+    "refresh": "1m",
+    "panels": [
+      {
+        "title": "30-Day Availability (Target: 99.99%)",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "1 - (sum(increase(http_server_requests_seconds_count{status=~\"5..\",uri=~\"/api/v1/auth/.*\"}[30d])) / sum(increase(http_server_requests_seconds_count{uri=~\"/api/v1/auth/.*\"}[30d])))",
+            "legendFormat": "Availability"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit", "min": 0.999, "max": 1,
+            "thresholds": {
+              "steps": [
+                {"value": 0.999, "color": "red"},
+                {"value": 0.9999, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Error Budget Remaining",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+        "targets": [
+          {
+            "expr": "1 - (sum(increase(http_server_requests_seconds_count{status=~\"5..\",uri=~\"/api/v1/auth/.*\"}[30d])) / (sum(increase(http_server_requests_seconds_count{uri=~\"/api/v1/auth/.*\"}[30d])) * 0.0001))",
+            "legendFormat": "Budget Remaining"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}}
+      },
+      {
+        "title": "Error Rate Burn (5m window)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(http_server_requests_seconds_count{status=~\"5..\",uri=~\"/api/v1/auth/.*\"}[5m]) / rate(http_server_requests_seconds_count{uri=~\"/api/v1/auth/.*\"}[5m])",
+            "legendFormat": "Error Rate"
+          }
+        ],
+        "fieldConfig": {"defaults": {"unit": "percentunit"}}
+      }
+    ]
+  }
+}

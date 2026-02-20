@@ -1,0 +1,67 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: risk-engine-hpa
+  namespace: ecommerce-ciam
+  labels:
+    app: risk-engine
+    app.kubernetes.io/name: risk-engine
+    app.kubernetes.io/component: risk
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: risk-engine
+
+  minReplicas: 3
+  maxReplicas: 15
+
+  metrics:
+    # CPU primary trigger at 70% — risk engine is CPU-bound for ML inference
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # Memory secondary trigger
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+
+    # Custom: risk evaluation requests per second
+    - type: Pods
+      pods:
+        metric:
+          name: risk_evaluations_per_second
+        target:
+          type: AverageValue
+          averageValue: "500"
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 30
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Pods
+          value: 3
+          periodSeconds: 60
+      selectPolicy: Max
+
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 25
+          periodSeconds: 120
+        - type: Pods
+          value: 1
+          periodSeconds: 120
+      selectPolicy: Min

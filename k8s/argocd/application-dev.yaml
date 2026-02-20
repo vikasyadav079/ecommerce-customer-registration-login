@@ -1,0 +1,74 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecommerce-ciam-dev
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+    environment: dev
+  annotations:
+    argocd.argoproj.io/manifest-generate-paths: "."
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: ecommerce-ciam-deployments
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: ecommerce-ciam-alerts
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: ecommerce-ciam-alerts
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: ecommerce-ciam
+
+  source:
+    repoURL: https://github.com/your-org/ecommerce-ciam.git
+    targetRevision: develop
+    path: k8s/overlays/dev
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ecommerce-ciam-dev
+
+  syncPolicy:
+    # Auto-sync — any commit to develop branch triggers deployment
+    automated:
+      prune: true          # Remove resources deleted from Git
+      selfHeal: true       # Revert manual changes to cluster
+      allowEmpty: false    # Prevent accidental wipe
+
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+
+    # Retry on transient failures
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  # Ignore differences that are managed externally (e.g. secret values, replica counts from HPA)
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas             # HPA manages this
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /spec/metrics              # Prometheus adapter may patch this
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data                      # Secrets managed by external secrets operator
+
+  revisionHistoryLimit: 10
+
+  info:
+    - name: "Environment"
+      value: "dev"
+    - name: "Team"
+      value: "ecommerce-ciam"
+    - name: "Git Branch"
+      value: "develop"

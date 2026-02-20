@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: notification-service-pdb
+  namespace: ecommerce-ciam
+  labels:
+    app: notification-service
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/component: notification
+    app.kubernetes.io/part-of: ecommerce-ciam
+    environment: prod
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: notification-service

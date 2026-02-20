@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ecommerce-ciam
+  labels:
+    name: ecommerce-ciam
+    istio-injection: enabled
+    app.kubernetes.io/managed-by: kustomize
+    environment: base
+  annotations:
+    meta.helm.sh/release-name: ecommerce-ciam
+    meta.helm.sh/release-namespace: ecommerce-ciam

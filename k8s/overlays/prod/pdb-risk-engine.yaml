@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: risk-engine-pdb
+  namespace: ecommerce-ciam
+  labels:
+    app: risk-engine
+    app.kubernetes.io/name: risk-engine
+    app.kubernetes.io/component: risk
+    app.kubernetes.io/part-of: ecommerce-ciam
+    environment: prod
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: risk-engine

@@ -1,0 +1,433 @@
+---
+# ArgoCD Application — Production
+# Uses Argo Rollouts for canary deployment: 5% -> 25% -> 50% -> 100%
+# with error-rate gate between each step
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecommerce-ciam-prod
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+    environment: prod
+  annotations:
+    argocd.argoproj.io/manifest-generate-paths: "."
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: ecommerce-ciam-releases
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: ecommerce-ciam-incidents
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: ecommerce-ciam-incidents
+    notifications.argoproj.io/subscribe.on-deployed.email: platform-team@ecommerce-ciam.example.com
+    notifications.argoproj.io/subscribe.on-deployed.pagerduty: ecommerce-ciam-prod
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: ecommerce-ciam
+
+  source:
+    repoURL: https://github.com/your-org/ecommerce-ciam.git
+    # Production deploys from immutable version tags only
+    targetRevision: v1.0.0
+    path: k8s/overlays/prod
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ecommerce-ciam
+
+  syncPolicy:
+    # Manual sync — require explicit operator approval for every production deployment
+    automated: null
+
+    syncOptions:
+      - CreateNamespace=false        # Namespace must pre-exist in prod
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      - Validate=true
+
+    retry:
+      limit: 2
+      backoff:
+        duration: 30s
+        factor: 2
+        maxDuration: 10m
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: argoproj.io
+      kind: Rollout
+      jsonPointers:
+        - /spec/replicas
+        - /status
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /spec/metrics
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+
+  revisionHistoryLimit: 5
+
+  info:
+    - name: "Environment"
+      value: "prod"
+    - name: "Team"
+      value: "ecommerce-ciam"
+    - name: "Sync Mode"
+      value: "manual — requires release engineer approval + sync window"
+    - name: "Rollout Strategy"
+      value: "canary 5% → 25% → 50% → 100% with error-rate gate"
+    - name: "Runbook"
+      value: "https://wiki.ecommerce-ciam.example.com/runbooks/prod-deploy"
+    - name: "Rollback"
+      value: "argocd app rollback ecommerce-ciam-prod <revision>"
+
+---
+# Argo Rollouts — Canary rollout strategy for identity-service (prod)
+# Replaces the base Deployment for production progressive delivery
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: identity-service-rollout
+  namespace: ecommerce-ciam
+  labels:
+    app: identity-service
+    app.kubernetes.io/name: identity-service
+    app.kubernetes.io/component: identity
+    app.kubernetes.io/part-of: ecommerce-ciam
+    environment: prod
+spec:
+  replicas: 4
+  revisionHistoryLimit: 5
+  selector:
+    matchLabels:
+      app: identity-service
+
+  template:
+    metadata:
+      labels:
+        app: identity-service
+        app.kubernetes.io/name: identity-service
+        app.kubernetes.io/part-of: ecommerce-ciam
+      annotations:
+        sidecar.istio.io/inject: "true"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+    spec:
+      serviceAccountName: identity-service-sa
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: identity-service
+          image: ecommerce-ciam/identity-service:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+            - name: management
+              containerPort: 8081
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "kubernetes,prod"
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseZGC -XX:+ZGenerational -Xms2g -Xmx6g
+                -XX:MaxMetaspaceSize=512m -XX:+ExitOnOutOfMemoryError
+                -Djava.security.egd=file:/dev/./urandom
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-db-secret
+                  key: url
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-db-secret
+                  key: username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-db-secret
+                  key: password
+            - name: SPRING_DATA_REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-redis-secret
+                  key: host
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-redis-secret
+                  key: password
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-kafka-secret
+                  key: bootstrap-servers
+            - name: CIAM_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-jwt-secret
+                  key: secret
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: tmp-dir
+              mountPath: /tmp
+            - name: logs-dir
+              mountPath: /app/logs
+      volumes:
+        - name: tmp-dir
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: logs-dir
+          emptyDir:
+            sizeLimit: 2Gi
+      imagePullSecrets:
+        - name: registry-credentials
+
+  strategy:
+    canary:
+      # Istio-based traffic splitting for precise canary percentages
+      trafficRouting:
+        istio:
+          virtualService:
+            name: identity-service-vs
+            routes:
+              - identity-route
+          destinationRule:
+            name: identity-service-dr
+            canarySubsetName: canary
+            stableSubsetName: stable
+
+      # Canary steps: 5% -> 25% -> 50% -> 100%
+      steps:
+        # Step 1: Route 5% of traffic to canary
+        - setWeight: 5
+        # Analysis: run error-rate check for 5 minutes at 5% traffic
+        - analysis:
+            templates:
+              - templateName: error-rate-check
+            args:
+              - name: service-name
+                value: identity-service
+              - name: namespace
+                value: ecommerce-ciam
+        # Pause for human review before proceeding
+        - pause:
+            duration: 5m
+
+        # Step 2: Increase to 25%
+        - setWeight: 25
+        - analysis:
+            templates:
+              - templateName: error-rate-check
+              - templateName: latency-check
+            args:
+              - name: service-name
+                value: identity-service
+              - name: namespace
+                value: ecommerce-ciam
+        - pause:
+            duration: 10m
+
+        # Step 3: Increase to 50%
+        - setWeight: 50
+        - analysis:
+            templates:
+              - templateName: error-rate-check
+              - templateName: latency-check
+              - templateName: success-rate-check
+            args:
+              - name: service-name
+                value: identity-service
+              - name: namespace
+                value: ecommerce-ciam
+        - pause:
+            duration: 15m
+
+        # Step 4: Full rollout — 100% canary (stable updated, canary removed)
+        - setWeight: 100
+
+      # Automatic rollback on analysis failure
+      autoPromotionEnabled: false   # Require explicit promotion at each gate
+
+      # Anti-affinity for stable vs canary pods
+      maxSurge: "25%"
+      maxUnavailable: 0
+
+      # Scale down old stable replicas gradually
+      scaleDownDelaySeconds: 30
+      scaleDownDelayRevisionLimit: 2
+
+---
+# AnalysisTemplate — Error rate gate
+# Queries Prometheus for HTTP 5xx error rate; fails if > 1% during canary window
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: error-rate-check
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  args:
+    - name: service-name
+    - name: namespace
+  metrics:
+    - name: error-rate
+      # Run every 30 seconds for 5 minutes total
+      interval: 30s
+      count: 10
+      successCondition: result[0] <= 0.01
+      failureCondition: result[0] > 0.05
+      failureLimit: 2          # Allow up to 2 consecutive failures before aborting
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(
+              rate(
+                istio_requests_total{
+                  destination_service_name="{{args.service-name}}",
+                  destination_service_namespace="{{args.namespace}}",
+                  response_code=~"5.."
+                }[2m]
+              )
+            )
+            /
+            sum(
+              rate(
+                istio_requests_total{
+                  destination_service_name="{{args.service-name}}",
+                  destination_service_namespace="{{args.namespace}}"
+                }[2m]
+              )
+            )
+
+---
+# AnalysisTemplate — P99 latency gate
+# Fails canary if P99 latency exceeds 500ms
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: latency-check
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  args:
+    - name: service-name
+    - name: namespace
+  metrics:
+    - name: p99-latency
+      interval: 30s
+      count: 10
+      # P99 must stay below 500ms
+      successCondition: result[0] <= 0.5
+      failureCondition: result[0] > 1.0
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            histogram_quantile(
+              0.99,
+              sum(
+                rate(
+                  istio_request_duration_milliseconds_bucket{
+                    destination_service_name="{{args.service-name}}",
+                    destination_service_namespace="{{args.namespace}}"
+                  }[2m]
+                )
+              ) by (le)
+            ) / 1000
+
+---
+# AnalysisTemplate — Success rate gate
+# Fails if overall success rate drops below 99%
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: success-rate-check
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  args:
+    - name: service-name
+    - name: namespace
+  metrics:
+    - name: success-rate
+      interval: 30s
+      count: 10
+      successCondition: result[0] >= 0.99
+      failureCondition: result[0] < 0.95
+      failureLimit: 2
+      provider:
+        prometheus:
+          address: http://prometheus.monitoring.svc.cluster.local:9090
+          query: |
+            sum(
+              rate(
+                istio_requests_total{
+                  destination_service_name="{{args.service-name}}",
+                  destination_service_namespace="{{args.namespace}}",
+                  response_code!~"5.."
+                }[2m]
+              )
+            )
+            /
+            sum(
+              rate(
+                istio_requests_total{
+                  destination_service_name="{{args.service-name}}",
+                  destination_service_namespace="{{args.namespace}}"
+                }[2m]
+              )
+            )

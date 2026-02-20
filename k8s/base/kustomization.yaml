@@ -1,0 +1,37 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ecommerce-ciam
+
+resources:
+  - namespace.yaml
+  # Identity Service
+  - identity-service/configmap.yaml
+  - identity-service/deployment.yaml
+  - identity-service/service.yaml
+  - identity-service/hpa.yaml
+  # Session Service
+  - session-service/deployment.yaml
+  - session-service/service.yaml
+  - session-service/hpa.yaml
+  # Risk Engine
+  - risk-engine/deployment.yaml
+  - risk-engine/service.yaml
+  - risk-engine/hpa.yaml
+  # Notification Service
+  - notification-service/deployment.yaml
+  - notification-service/service.yaml
+  # Audit Service
+  - audit-service/deployment.yaml
+  - audit-service/service.yaml
+  # API Gateway
+  - api-gateway/deployment.yaml
+  - api-gateway/service.yaml
+  - api-gateway/hpa.yaml
+
+commonLabels:
+  app.kubernetes.io/part-of: ecommerce-ciam
+  app.kubernetes.io/managed-by: kustomize
+
+commonAnnotations:
+  app.kubernetes.io/version: "1.0.0"

@@ -1,0 +1,68 @@
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: session-service-hpa
+  namespace: ecommerce-ciam
+  labels:
+    app: session-service
+    app.kubernetes.io/name: session-service
+    app.kubernetes.io/component: session
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: session-service
+
+  minReplicas: 2
+  maxReplicas: 20
+
+  metrics:
+    # Memory-based scaling — primary trigger at 70% utilization
+    # Session service is memory-intensive due to in-memory session caches
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 70
+
+    # CPU secondary trigger
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 75
+
+    # Custom: active sessions per pod
+    - type: Pods
+      pods:
+        metric:
+          name: active_sessions_count
+        target:
+          type: AverageValue
+          averageValue: "5000"
+
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 90
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 60
+        - type: Pods
+          value: 2
+          periodSeconds: 60
+      selectPolicy: Max
+
+    scaleDown:
+      stabilizationWindowSeconds: 600
+      policies:
+        - type: Percent
+          value: 20
+          periodSeconds: 180
+        - type: Pods
+          value: 1
+          periodSeconds: 180
+      selectPolicy: Min

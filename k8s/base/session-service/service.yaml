@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: session-service
+  namespace: ecommerce-ciam
+  labels:
+    app: session-service
+    app.kubernetes.io/name: session-service
+    app.kubernetes.io/component: session
+    app.kubernetes.io/part-of: ecommerce-ciam
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8081"
+    prometheus.io/path: "/actuator/prometheus"
+spec:
+  type: ClusterIP
+  selector:
+    app: session-service
+  ports:
+    - name: http
+      protocol: TCP
+      port: 8080
+      targetPort: http
+    - name: management
+      protocol: TCP
+      port: 8081
+      targetPort: management
+  sessionAffinity: None

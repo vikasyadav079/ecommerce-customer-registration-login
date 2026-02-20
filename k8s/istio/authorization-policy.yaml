@@ -1,0 +1,283 @@
+---
+# Default DENY-ALL policy for the namespace
+# Explicit allow rules below grant only necessary access
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: deny-all-default
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+    app.kubernetes.io/component: security
+spec:
+  # Empty spec = deny all inbound traffic to the namespace
+  {}
+
+---
+# Allow external traffic to reach API Gateway via Istio Ingress Gateway
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-ingress-to-gateway
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"
+      to:
+        - operation:
+            ports:
+              - "8080"
+
+---
+# Allow API Gateway to call identity-service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-gateway-to-identity
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: identity-service
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ecommerce-ciam/sa/api-gateway-sa"
+      to:
+        - operation:
+            methods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+            ports:
+              - "8080"
+
+---
+# Allow API Gateway to call session-service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-gateway-to-session
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: session-service
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ecommerce-ciam/sa/api-gateway-sa"
+              - "cluster.local/ns/ecommerce-ciam/sa/identity-service-sa"
+      to:
+        - operation:
+            methods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+            ports:
+              - "8080"
+
+---
+# Allow identity-service to call risk-engine (sync risk evaluation during auth)
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-identity-to-risk
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: risk-engine
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ecommerce-ciam/sa/identity-service-sa"
+              - "cluster.local/ns/ecommerce-ciam/sa/api-gateway-sa"
+      to:
+        - operation:
+            methods:
+              - POST
+              - GET
+            ports:
+              - "8080"
+            paths:
+              - "/api/v1/risk/evaluate"
+              - "/api/v1/risk/score"
+              - "/actuator/health"
+
+---
+# Allow all internal services to call notification-service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-internal-to-notification
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: notification-service
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ecommerce-ciam/sa/identity-service-sa"
+              - "cluster.local/ns/ecommerce-ciam/sa/session-service-sa"
+              - "cluster.local/ns/ecommerce-ciam/sa/risk-engine-sa"
+              - "cluster.local/ns/ecommerce-ciam/sa/api-gateway-sa"
+      to:
+        - operation:
+            methods:
+              - POST
+            ports:
+              - "8080"
+            paths:
+              - "/api/v1/notifications/*"
+              - "/actuator/health"
+
+---
+# Allow all internal services to publish to audit-service
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-internal-to-audit
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  selector:
+    matchLabels:
+      app: audit-service
+  rules:
+    - from:
+        - source:
+            principals:
+              - "cluster.local/ns/ecommerce-ciam/sa/identity-service-sa"
+              - "cluster.local/ns/ecommerce-ciam/sa/session-service-sa"
+              - "cluster.local/ns/ecommerce-ciam/sa/risk-engine-sa"
+              - "cluster.local/ns/ecommerce-ciam/sa/notification-service-sa"
+              - "cluster.local/ns/ecommerce-ciam/sa/api-gateway-sa"
+      to:
+        - operation:
+            methods:
+              - GET
+              - POST
+            ports:
+              - "8080"
+
+---
+# Admin APIs — restrict to VPN CIDR range only
+# These paths expose user management, system configuration and compliance exports
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: admin-apis-vpn-only
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+    policy-type: vpn-restriction
+spec:
+  selector:
+    matchLabels:
+      app: api-gateway
+  rules:
+    - from:
+        # Only allow requests from the Istio ingress gateway
+        - source:
+            principals:
+              - "cluster.local/ns/istio-system/sa/istio-ingressgateway-service-account"
+            # VPN IP ranges — requests must originate from corporate VPN
+            # These are enforced via the x-forwarded-for header checked by the gateway
+            # For true IP-based restriction, configure at the NLB/WAF level upstream
+            ipBlocks:
+              - "10.0.0.0/8"       # RFC1918 — corporate VPN
+              - "172.16.0.0/12"    # RFC1918 — corporate VPN
+              - "192.168.0.0/16"   # RFC1918 — corporate VPN
+      to:
+        - operation:
+            methods:
+              - GET
+              - POST
+              - PUT
+              - PATCH
+              - DELETE
+            ports:
+              - "8080"
+            paths:
+              - "/api/v1/admin/*"
+              - "/api/v1/users/*/force-logout"
+              - "/api/v1/users/*/lock"
+              - "/api/v1/system/*"
+              - "/api/v1/audit/export"
+              - "/api/v1/compliance/*"
+
+---
+# Allow Prometheus scraping on management ports
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-prometheus-scraping
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  rules:
+    - from:
+        - source:
+            namespaces:
+              - monitoring
+              - prometheus
+      to:
+        - operation:
+            methods:
+              - GET
+            ports:
+              - "8081"
+            paths:
+              - "/actuator/prometheus"
+              - "/actuator/health"
+              - "/actuator/info"
+
+---
+# Allow health checks from kube-system (kubelet probes bypass Envoy)
+# This policy handles in-cluster health check traffic
+apiVersion: security.istio.io/v1beta1
+kind: AuthorizationPolicy
+metadata:
+  name: allow-health-checks
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  rules:
+    - to:
+        - operation:
+            methods:
+              - GET
+            ports:
+              - "8081"
+            paths:
+              - "/actuator/health"
+              - "/actuator/health/readiness"
+              - "/actuator/health/liveness"

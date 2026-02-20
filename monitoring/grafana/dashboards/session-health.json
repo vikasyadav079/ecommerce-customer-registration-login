@@ -1,0 +1,57 @@
+{
+  "dashboard": {
+    "title": "Session Health",
+    "uid": "session-health",
+    "tags": ["ecommerce", "session", "redis"],
+    "timezone": "UTC",
+    "refresh": "10s",
+    "panels": [
+      {
+        "title": "Redis Cache Hit Rate",
+        "type": "gauge",
+        "gridPos": {"h": 8, "w": 8, "x": 0, "y": 0},
+        "targets": [
+          {"expr": "redis_cache_hit_rate", "legendFormat": "Hit Rate"}
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "percentunit",
+            "min": 0, "max": 1,
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "red"},
+                {"value": 0.9, "color": "yellow"},
+                {"value": 0.95, "color": "green"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Session Creation Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 8, "x": 8, "y": 0},
+        "targets": [
+          {"expr": "rate(session_created_total[5m])", "legendFormat": "Created/s"}
+        ]
+      },
+      {
+        "title": "Active Sessions",
+        "type": "stat",
+        "gridPos": {"h": 8, "w": 8, "x": 16, "y": 0},
+        "targets": [
+          {"expr": "session_active_count", "legendFormat": "Active"}
+        ]
+      },
+      {
+        "title": "Redis Operations Latency",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+        "targets": [
+          {"expr": "histogram_quantile(0.99, rate(redis_command_duration_seconds_bucket[5m]))", "legendFormat": "p99 {{command}}"}
+        ],
+        "fieldConfig": {"defaults": {"unit": "s"}}
+      }
+    ]
+  }
+}

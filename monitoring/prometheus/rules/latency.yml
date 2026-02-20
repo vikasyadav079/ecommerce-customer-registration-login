@@ -1,0 +1,40 @@
+groups:
+  - name: latency
+    rules:
+      - alert: LoginP99High
+        expr: |
+          histogram_quantile(0.99,
+            rate(http_server_requests_seconds_bucket{uri="/api/v1/auth/login"}[5m])
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: critical
+          team: identity
+        annotations:
+          summary: "Login p99 latency > 200ms"
+          description: "Login endpoint p99 latency is {{ $value | humanizeDuration }}. Target: < 200ms."
+
+      - alert: TokenValidationP99High
+        expr: |
+          histogram_quantile(0.99,
+            rate(http_server_requests_seconds_bucket{uri="/api/v1/auth/refresh-token"}[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          team: identity
+        annotations:
+          summary: "Token refresh p99 latency > 50ms"
+          description: "Token refresh p99 latency is {{ $value | humanizeDuration }}. Target: < 50ms."
+
+      - alert: RegistrationP99High
+        expr: |
+          histogram_quantile(0.99,
+            rate(http_server_requests_seconds_bucket{uri="/api/v1/auth/register"}[5m])
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: identity
+        annotations:
+          summary: "Registration p99 latency > 500ms"

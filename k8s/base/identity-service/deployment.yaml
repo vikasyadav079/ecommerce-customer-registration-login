@@ -1,0 +1,407 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: identity-service
+  namespace: ecommerce-ciam
+  labels:
+    app: identity-service
+    app.kubernetes.io/name: identity-service
+    app.kubernetes.io/component: identity
+    app.kubernetes.io/part-of: ecommerce-ciam
+    app.kubernetes.io/version: "1.0.0"
+  annotations:
+    deployment.kubernetes.io/revision: "1"
+spec:
+  replicas: 4
+  selector:
+    matchLabels:
+      app: identity-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: identity-service
+        app.kubernetes.io/name: identity-service
+        app.kubernetes.io/component: identity
+        app.kubernetes.io/part-of: ecommerce-ciam
+        version: "1.0.0"
+      annotations:
+        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/proxyCPU: "100m"
+        sidecar.istio.io/proxyMemory: "128Mi"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/actuator/prometheus"
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      serviceAccountName: identity-service-sa
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - identity-service
+                topologyKey: kubernetes.io/hostname
+            - weight: 50
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - identity-service
+                topologyKey: topology.kubernetes.io/zone
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: identity-service
+
+      initContainers:
+        - name: wait-for-db
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z ${DB_HOST} ${DB_PORT:-5432}; do
+                echo "Waiting for PostgreSQL at ${DB_HOST}:${DB_PORT:-5432}..."
+                sleep 2
+              done
+              echo "PostgreSQL is ready"
+          env:
+            - name: DB_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-db-secret
+                  key: host
+            - name: DB_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-db-secret
+                  key: port
+                  optional: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+
+        - name: wait-for-redis
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z ${REDIS_HOST} ${REDIS_PORT:-6379}; do
+                echo "Waiting for Redis at ${REDIS_HOST}:${REDIS_PORT:-6379}..."
+                sleep 2
+              done
+              echo "Redis is ready"
+          env:
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-redis-secret
+                  key: host
+            - name: REDIS_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-redis-secret
+                  key: port
+                  optional: true
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              cpu: 50m
+              memory: 32Mi
+
+      containers:
+        - name: identity-service
+          image: ecommerce-ciam/identity-service:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+
+          resources:
+            requests:
+              cpu: "2"
+              memory: 4Gi
+            limits:
+              cpu: "4"
+              memory: 8Gi
+
+          env:
+            # Spring Boot
+            - name: SPRING_PROFILES_ACTIVE
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SPRING_PROFILES_ACTIVE
+            - name: SPRING_APPLICATION_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SPRING_APPLICATION_NAME
+
+            # JVM Options
+            - name: JAVA_OPTS
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: JAVA_OPTS
+
+            # Server ports
+            - name: SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SERVER_PORT
+            - name: MANAGEMENT_SERVER_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: MANAGEMENT_SERVER_PORT
+
+            # Database
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-db-secret
+                  key: url
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-db-secret
+                  key: username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-db-secret
+                  key: password
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+            - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+
+            # Redis
+            - name: SPRING_DATA_REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-redis-secret
+                  key: host
+            - name: SPRING_DATA_REDIS_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-redis-secret
+                  key: port
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-redis-secret
+                  key: password
+            - name: SPRING_DATA_REDIS_TIMEOUT
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SPRING_DATA_REDIS_TIMEOUT
+            - name: SPRING_DATA_REDIS_LETTUCE_POOL_MAX_ACTIVE
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SPRING_DATA_REDIS_LETTUCE_POOL_MAX_ACTIVE
+
+            # Kafka
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-kafka-secret
+                  key: bootstrap-servers
+            - name: SPRING_KAFKA_PRODUCER_ACKS
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SPRING_KAFKA_PRODUCER_ACKS
+            - name: SPRING_KAFKA_PRODUCER_RETRIES
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SPRING_KAFKA_PRODUCER_RETRIES
+            - name: SPRING_KAFKA_CONSUMER_GROUP_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: SPRING_KAFKA_CONSUMER_GROUP_ID
+
+            # JWT Secrets
+            - name: CIAM_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-jwt-secret
+                  key: secret
+            - name: CIAM_JWT_PRIVATE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: identity-service-jwt-secret
+                  key: private-key
+                  optional: true
+
+            # CIAM config
+            - name: CIAM_TOKEN_ACCESS_EXPIRY_MINUTES
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: CIAM_TOKEN_ACCESS_EXPIRY_MINUTES
+            - name: CIAM_TOKEN_REFRESH_EXPIRY_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: CIAM_TOKEN_REFRESH_EXPIRY_DAYS
+            - name: CIAM_MFA_TOTP_ISSUER
+              valueFrom:
+                configMapKeyRef:
+                  name: identity-service-config
+                  key: CIAM_MFA_TOTP_ISSUER
+
+            # Pod metadata
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 60
+            periodSeconds: 15
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 30
+
+          volumeMounts:
+            - name: tmp-dir
+              mountPath: /tmp
+            - name: logs-dir
+              mountPath: /app/logs
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - sleep 10
+
+      volumes:
+        - name: tmp-dir
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: logs-dir
+          emptyDir:
+            sizeLimit: 2Gi
+        - name: config-volume
+          configMap:
+            name: identity-service-config
+
+      imagePullSecrets:
+        - name: registry-credentials

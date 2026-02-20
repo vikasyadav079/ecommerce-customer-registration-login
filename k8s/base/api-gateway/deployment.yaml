@@ -1,0 +1,284 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-gateway
+  namespace: ecommerce-ciam
+  labels:
+    app: api-gateway
+    app.kubernetes.io/name: api-gateway
+    app.kubernetes.io/component: gateway
+    app.kubernetes.io/part-of: ecommerce-ciam
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api-gateway
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2
+      maxUnavailable: 1
+  template:
+    metadata:
+      labels:
+        app: api-gateway
+        app.kubernetes.io/name: api-gateway
+        app.kubernetes.io/component: gateway
+        app.kubernetes.io/part-of: ecommerce-ciam
+        version: "1.0.0"
+      annotations:
+        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/proxyCPU: "200m"
+        sidecar.istio.io/proxyMemory: "256Mi"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/actuator/prometheus"
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      serviceAccountName: api-gateway-sa
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                  - key: app
+                    operator: In
+                    values:
+                      - api-gateway
+              topologyKey: kubernetes.io/hostname
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - api-gateway
+                topologyKey: topology.kubernetes.io/zone
+
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: api-gateway
+
+      containers:
+        - name: api-gateway
+          # Spring Cloud Gateway reactive application
+          image: ecommerce-ciam/api-gateway:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - NET_BIND_SERVICE
+
+          resources:
+            requests:
+              cpu: "1"
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 2Gi
+
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "kubernetes,prod"
+            - name: SPRING_APPLICATION_NAME
+              value: "api-gateway"
+            - name: SERVER_PORT
+              value: "8080"
+            - name: MANAGEMENT_SERVER_PORT
+              value: "8081"
+            - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
+              value: "true"
+            - name: MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+              value: "health,info,metrics,prometheus,gateway"
+
+            # JVM Options — reactive/Netty-based, fewer threads needed
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseZGC
+                -XX:+ZGenerational
+                -Xms512m
+                -Xmx1536m
+                -XX:MaxMetaspaceSize=128m
+                -XX:+ExitOnOutOfMemoryError
+                -Djava.security.egd=file:/dev/./urandom
+                -Dreactor.netty.ioWorkerCount=8
+                -Dreactor.netty.pool.maxConnections=1000
+
+            # Redis for rate limiting and circuit breaker state
+            - name: SPRING_DATA_REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: api-gateway-redis-secret
+                  key: host
+            - name: SPRING_DATA_REDIS_PORT
+              valueFrom:
+                secretKeyRef:
+                  name: api-gateway-redis-secret
+                  key: port
+            - name: SPRING_DATA_REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: api-gateway-redis-secret
+                  key: password
+
+            # JWT validation
+            - name: GATEWAY_JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: api-gateway-jwt-secret
+                  key: secret
+            - name: GATEWAY_JWT_PUBLIC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: api-gateway-jwt-secret
+                  key: public-key
+                  optional: true
+
+            # Upstream service URLs
+            - name: GATEWAY_SERVICES_IDENTITY_URL
+              value: "http://identity-service:8080"
+            - name: GATEWAY_SERVICES_SESSION_URL
+              value: "http://session-service:8080"
+            - name: GATEWAY_SERVICES_RISK_URL
+              value: "http://risk-engine:8080"
+            - name: GATEWAY_SERVICES_NOTIFICATION_URL
+              value: "http://notification-service:8080"
+            - name: GATEWAY_SERVICES_AUDIT_URL
+              value: "http://audit-service:8080"
+
+            # Rate limiting
+            - name: GATEWAY_RATE_LIMIT_DEFAULT_REPLENISH_RATE
+              value: "100"
+            - name: GATEWAY_RATE_LIMIT_DEFAULT_BURST_CAPACITY
+              value: "200"
+            - name: GATEWAY_RATE_LIMIT_AUTH_REPLENISH_RATE
+              value: "20"
+            - name: GATEWAY_RATE_LIMIT_AUTH_BURST_CAPACITY
+              value: "40"
+
+            # Circuit breaker
+            - name: GATEWAY_CIRCUIT_BREAKER_FAILURE_RATE_THRESHOLD
+              value: "50"
+            - name: GATEWAY_CIRCUIT_BREAKER_WAIT_DURATION_OPEN_STATE_MS
+              value: "10000"
+            - name: GATEWAY_CIRCUIT_BREAKER_PERMITTED_CALLS_HALF_OPEN
+              value: "5"
+
+            # CORS
+            - name: GATEWAY_CORS_ALLOWED_ORIGINS
+              value: "https://app.ecommerce-ciam.example.com,https://admin.ecommerce-ciam.example.com"
+            - name: GATEWAY_CORS_ALLOWED_METHODS
+              value: "GET,POST,PUT,PATCH,DELETE,OPTIONS"
+
+            # Security headers
+            - name: GATEWAY_SECURITY_HEADERS_ENABLED
+              value: "true"
+            - name: GATEWAY_SECURITY_HSTS_MAX_AGE
+              value: "31536000"
+
+            # Pod metadata
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 20
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 40
+            periodSeconds: 15
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 20
+
+          volumeMounts:
+            - name: tmp-dir
+              mountPath: /tmp
+            - name: logs-dir
+              mountPath: /app/logs
+            - name: routes-config
+              mountPath: /app/config
+              readOnly: true
+
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - sleep 10
+
+      volumes:
+        - name: tmp-dir
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: logs-dir
+          emptyDir:
+            sizeLimit: 1Gi
+        - name: routes-config
+          configMap:
+            name: api-gateway-routes-config
+            optional: true
+
+      imagePullSecrets:
+        - name: registry-credentials

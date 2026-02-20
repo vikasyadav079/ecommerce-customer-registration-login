@@ -1,0 +1,215 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: ecommerce-ciam-staging
+
+resources:
+  - ../../base
+
+commonLabels:
+  environment: staging
+
+commonAnnotations:
+  environment: staging
+
+patches:
+  # ---- Identity Service — 2 replicas, medium resources ----
+  - target:
+      kind: Deployment
+      name: identity-service
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "2Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "2"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "4Gi"
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: identity-service-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 10
+
+  # ---- Session Service ----
+  - target:
+      kind: Deployment
+      name: session-service
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "1Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "2Gi"
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: session-service-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 8
+
+  # ---- Risk Engine ----
+  - target:
+      kind: Deployment
+      name: risk-engine
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "1Gi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "2Gi"
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: risk-engine-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 8
+
+  # ---- Notification Service ----
+  - target:
+      kind: Deployment
+      name: notification-service
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "250m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "1Gi"
+
+  # ---- Audit Service ----
+  - target:
+      kind: Deployment
+      name: audit-service
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "250m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "1Gi"
+
+  # ---- API Gateway ----
+  - target:
+      kind: Deployment
+      name: api-gateway
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: "500m"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: "512Mi"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: "1"
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: "1Gi"
+
+  - target:
+      kind: HorizontalPodAutoscaler
+      name: api-gateway-hpa
+    patch: |-
+      - op: replace
+        path: /spec/minReplicas
+        value: 2
+      - op: replace
+        path: /spec/maxReplicas
+        value: 8
+
+  # ---- Namespace ----
+  - target:
+      kind: Namespace
+      name: ecommerce-ciam
+    patch: |-
+      - op: replace
+        path: /metadata/name
+        value: ecommerce-ciam-staging
+
+configMapGenerator:
+  - name: identity-service-config
+    behavior: merge
+    literals:
+      - SPRING_PROFILES_ACTIVE=kubernetes,staging
+      - LOGGING_LEVEL_ORG_EXAMPLE=INFO
+      - SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE=10
+
+images:
+  - name: ecommerce-ciam/identity-service
+    newTag: staging-latest
+  - name: ecommerce-ciam/session-service
+    newTag: staging-latest
+  - name: ecommerce-ciam/risk-engine
+    newTag: staging-latest
+  - name: ecommerce-ciam/notification-service
+    newTag: staging-latest
+  - name: ecommerce-ciam/audit-service
+    newTag: staging-latest
+  - name: ecommerce-ciam/api-gateway
+    newTag: staging-latest

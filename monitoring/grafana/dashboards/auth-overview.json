@@ -1,0 +1,90 @@
+{
+  "dashboard": {
+    "title": "Auth Overview",
+    "uid": "auth-overview",
+    "tags": ["ecommerce", "auth"],
+    "timezone": "UTC",
+    "refresh": "10s",
+    "panels": [
+      {
+        "title": "Login Request Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {
+            "expr": "rate(http_server_requests_seconds_count{uri=\"/api/v1/auth/login\"}[5m])",
+            "legendFormat": "{{status}}"
+          }
+        ]
+      },
+      {
+        "title": "Login Success/Failure Ratio",
+        "type": "piechart",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {
+            "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/v1/auth/login\",status=~\"2..\"}[1h]))",
+            "legendFormat": "Success"
+          },
+          {
+            "expr": "sum(increase(http_server_requests_seconds_count{uri=\"/api/v1/auth/login\",status=~\"4..|5..\"}[1h]))",
+            "legendFormat": "Failure"
+          }
+        ]
+      },
+      {
+        "title": "Login Latency (p50, p95, p99)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 24, "x": 0, "y": 8},
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.50, rate(http_server_requests_seconds_bucket{uri=\"/api/v1/auth/login\"}[5m]))",
+            "legendFormat": "p50"
+          },
+          {
+            "expr": "histogram_quantile(0.95, rate(http_server_requests_seconds_bucket{uri=\"/api/v1/auth/login\"}[5m]))",
+            "legendFormat": "p95"
+          },
+          {
+            "expr": "histogram_quantile(0.99, rate(http_server_requests_seconds_bucket{uri=\"/api/v1/auth/login\"}[5m]))",
+            "legendFormat": "p99"
+          }
+        ],
+        "fieldConfig": {
+          "defaults": {
+            "unit": "s",
+            "thresholds": {
+              "steps": [
+                {"value": 0, "color": "green"},
+                {"value": 0.1, "color": "yellow"},
+                {"value": 0.2, "color": "red"}
+              ]
+            }
+          }
+        }
+      },
+      {
+        "title": "Registration Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 16},
+        "targets": [
+          {
+            "expr": "rate(http_server_requests_seconds_count{uri=\"/api/v1/auth/register\"}[5m])",
+            "legendFormat": "{{status}}"
+          }
+        ]
+      },
+      {
+        "title": "Token Refresh Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 16},
+        "targets": [
+          {
+            "expr": "rate(http_server_requests_seconds_count{uri=\"/api/v1/auth/refresh-token\"}[5m])",
+            "legendFormat": "{{status}}"
+          }
+        ]
+      }
+    ]
+  }
+}

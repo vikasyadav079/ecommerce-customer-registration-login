@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: session-service-pdb
+  namespace: ecommerce-ciam
+  labels:
+    app: session-service
+    app.kubernetes.io/name: session-service
+    app.kubernetes.io/component: session
+    app.kubernetes.io/part-of: ecommerce-ciam
+    environment: prod
+spec:
+  minAvailable: 3
+  selector:
+    matchLabels:
+      app: session-service

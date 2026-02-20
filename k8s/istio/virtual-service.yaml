@@ -1,0 +1,205 @@
+---
+# Virtual Service for the public API gateway host
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: api-gateway-vs
+  namespace: ecommerce-ciam
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+    app.kubernetes.io/component: routing
+spec:
+  hosts:
+    - "api.ecommerce-ciam.example.com"
+    - "auth.ecommerce-ciam.example.com"
+  gateways:
+    - ecommerce-ciam-gateway
+  http:
+    # All external traffic routes to the API gateway
+    - name: api-gateway-route
+      match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: api-gateway
+            port:
+              number: 8080
+            subset: stable
+          weight: 100
+      timeout: 30s
+      retries:
+        attempts: 3
+        perTryTimeout: 10s
+        retryOn: "connect-failure,refused-stream,unavailable,cancelled,retriable-4xx"
+      corsPolicy:
+        allowOrigins:
+          - exact: "https://app.ecommerce-ciam.example.com"
+          - exact: "https://admin.ecommerce-ciam.example.com"
+        allowMethods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - OPTIONS
+        allowHeaders:
+          - Authorization
+          - Content-Type
+          - X-Request-ID
+          - X-Correlation-ID
+        exposeHeaders:
+          - X-Request-ID
+          - X-Correlation-ID
+        maxAge: "24h"
+        allowCredentials: true
+
+---
+# Internal routing for identity-service
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: identity-service-vs
+  namespace: ecommerce-ciam
+  labels:
+    app: identity-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  hosts:
+    - identity-service
+  http:
+    - name: identity-route
+      match:
+        - uri:
+            prefix: /
+      route:
+        - destination:
+            host: identity-service
+            port:
+              number: 8080
+            subset: stable
+          weight: 100
+      timeout: 10s
+      retries:
+        attempts: 3
+        perTryTimeout: 3s
+        retryOn: "connect-failure,refused-stream,unavailable"
+      fault:
+        # Simulate latency in dev/staging only — inject via patch in overlays
+        # delay:
+        #   percentage:
+        #     value: 0.1
+        #   fixedDelay: 500ms
+
+---
+# Internal routing for session-service
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: session-service-vs
+  namespace: ecommerce-ciam
+  labels:
+    app: session-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  hosts:
+    - session-service
+  http:
+    - name: session-route
+      route:
+        - destination:
+            host: session-service
+            port:
+              number: 8080
+            subset: stable
+          weight: 100
+      timeout: 5s
+      retries:
+        attempts: 2
+        perTryTimeout: 2s
+        retryOn: "connect-failure,refused-stream,unavailable"
+
+---
+# Internal routing for risk-engine
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: risk-engine-vs
+  namespace: ecommerce-ciam
+  labels:
+    app: risk-engine
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  hosts:
+    - risk-engine
+  http:
+    - name: risk-route
+      route:
+        - destination:
+            host: risk-engine
+            port:
+              number: 8080
+            subset: stable
+          weight: 100
+      # Risk engine has a strict SLA — fail fast rather than retry
+      timeout: 3s
+      retries:
+        attempts: 1
+        perTryTimeout: 2s
+        retryOn: "connect-failure,refused-stream"
+
+---
+# Internal routing for notification-service
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: notification-service-vs
+  namespace: ecommerce-ciam
+  labels:
+    app: notification-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  hosts:
+    - notification-service
+  http:
+    - name: notification-route
+      route:
+        - destination:
+            host: notification-service
+            port:
+              number: 8080
+            subset: stable
+          weight: 100
+      timeout: 15s
+      retries:
+        attempts: 3
+        perTryTimeout: 5s
+        retryOn: "connect-failure,refused-stream,unavailable"
+
+---
+# Internal routing for audit-service
+apiVersion: networking.istio.io/v1beta1
+kind: VirtualService
+metadata:
+  name: audit-service-vs
+  namespace: ecommerce-ciam
+  labels:
+    app: audit-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  hosts:
+    - audit-service
+  http:
+    - name: audit-route
+      route:
+        - destination:
+            host: audit-service
+            port:
+              number: 8080
+            subset: stable
+          weight: 100
+      timeout: 10s
+      retries:
+        attempts: 3
+        perTryTimeout: 3s
+        retryOn: "connect-failure,refused-stream,unavailable"

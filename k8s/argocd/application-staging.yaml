@@ -1,0 +1,79 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: ecommerce-ciam-staging
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+    environment: staging
+  annotations:
+    argocd.argoproj.io/manifest-generate-paths: "."
+    notifications.argoproj.io/subscribe.on-sync-succeeded.slack: ecommerce-ciam-deployments
+    notifications.argoproj.io/subscribe.on-sync-failed.slack: ecommerce-ciam-alerts
+    notifications.argoproj.io/subscribe.on-health-degraded.slack: ecommerce-ciam-alerts
+    notifications.argoproj.io/subscribe.on-deployed.email: platform-team@ecommerce-ciam.example.com
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: ecommerce-ciam
+
+  source:
+    repoURL: https://github.com/your-org/ecommerce-ciam.git
+    # Staging deploys from release/* branches or explicit tags
+    targetRevision: release/1.0.0
+    path: k8s/overlays/staging
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: ecommerce-ciam-staging
+
+  syncPolicy:
+    # Manual sync only — require explicit approval before deploying to staging
+    # Trigger via ArgoCD CLI: argocd app sync ecommerce-ciam-staging
+    # Or via ArgoCD UI with the "Sync" button
+    automated: null
+
+    syncOptions:
+      - CreateNamespace=true
+      - PrunePropagationPolicy=foreground
+      - PruneLast=true
+      - RespectIgnoreDifferences=true
+      - ApplyOutOfSyncOnly=true
+      - ServerSideApply=true
+      # Validate manifests before applying
+      - Validate=true
+
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 5m
+
+  ignoreDifferences:
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+      jsonPointers:
+        - /spec/metrics
+    - group: ""
+      kind: Secret
+      jsonPointers:
+        - /data
+
+  revisionHistoryLimit: 10
+
+  info:
+    - name: "Environment"
+      value: "staging"
+    - name: "Team"
+      value: "ecommerce-ciam"
+    - name: "Sync Mode"
+      value: "manual — requires explicit approval"
+    - name: "Git Branch"
+      value: "release/1.0.0"
+    - name: "Runbook"
+      value: "https://wiki.ecommerce-ciam.example.com/runbooks/staging-deploy"

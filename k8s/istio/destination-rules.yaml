@@ -1,0 +1,263 @@
+---
+# Destination Rule — identity-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: identity-service-dr
+  namespace: ecommerce-ciam
+  labels:
+    app: identity-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  host: identity-service
+  trafficPolicy:
+    # mTLS for all traffic to this service
+    tls:
+      mode: ISTIO_MUTUAL
+    # Connection pool settings to prevent cascading failures
+    connectionPool:
+      tcp:
+        maxConnections: 500
+        connectTimeout: 5s
+        tcpKeepalive:
+          time: 7200s
+          interval: 75s
+      http:
+        http1MaxPendingRequests: 200
+        http2MaxRequests: 1000
+        maxRequestsPerConnection: 100
+        maxRetries: 3
+        idleTimeout: 90s
+        h2UpgradePolicy: UPGRADE
+    # Circuit breaker — outlier detection
+    outlierDetection:
+      consecutive5xxErrors: 5
+      consecutiveGatewayErrors: 3
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+      minHealthPercent: 50
+      splitExternalLocalOriginErrors: true
+  subsets:
+    - name: stable
+      labels:
+        app: identity-service
+      trafficPolicy:
+        tls:
+          mode: ISTIO_MUTUAL
+    - name: canary
+      labels:
+        app: identity-service
+        version: canary
+      trafficPolicy:
+        tls:
+          mode: ISTIO_MUTUAL
+
+---
+# Destination Rule — session-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: session-service-dr
+  namespace: ecommerce-ciam
+  labels:
+    app: session-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  host: session-service
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 300
+        connectTimeout: 3s
+      http:
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 500
+        maxRequestsPerConnection: 50
+        maxRetries: 2
+        idleTimeout: 60s
+    outlierDetection:
+      consecutive5xxErrors: 5
+      consecutiveGatewayErrors: 3
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 33
+      minHealthPercent: 50
+  subsets:
+    - name: stable
+      labels:
+        app: session-service
+    - name: canary
+      labels:
+        app: session-service
+        version: canary
+
+---
+# Destination Rule — risk-engine
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: risk-engine-dr
+  namespace: ecommerce-ciam
+  labels:
+    app: risk-engine
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  host: risk-engine
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 200
+        connectTimeout: 2s
+      http:
+        http1MaxPendingRequests: 50
+        http2MaxRequests: 200
+        maxRequestsPerConnection: 20
+        # Fail fast for risk engine to avoid blocking auth flows
+        maxRetries: 1
+        idleTimeout: 30s
+    # Aggressive circuit breaker — risk engine must not degrade auth latency
+    outlierDetection:
+      consecutive5xxErrors: 3
+      consecutiveGatewayErrors: 2
+      interval: 5s
+      baseEjectionTime: 15s
+      maxEjectionPercent: 50
+      minHealthPercent: 60
+  subsets:
+    - name: stable
+      labels:
+        app: risk-engine
+    - name: canary
+      labels:
+        app: risk-engine
+        version: canary
+
+---
+# Destination Rule — notification-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: notification-service-dr
+  namespace: ecommerce-ciam
+  labels:
+    app: notification-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  host: notification-service
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 5s
+      http:
+        http1MaxPendingRequests: 100
+        http2MaxRequests: 200
+        maxRequestsPerConnection: 50
+        maxRetries: 3
+        idleTimeout: 120s
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 30s
+      baseEjectionTime: 60s
+      maxEjectionPercent: 50
+      minHealthPercent: 30
+  subsets:
+    - name: stable
+      labels:
+        app: notification-service
+    - name: canary
+      labels:
+        app: notification-service
+        version: canary
+
+---
+# Destination Rule — audit-service
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: audit-service-dr
+  namespace: ecommerce-ciam
+  labels:
+    app: audit-service
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  host: audit-service
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 100
+        connectTimeout: 5s
+      http:
+        http1MaxPendingRequests: 200
+        http2MaxRequests: 400
+        maxRequestsPerConnection: 100
+        maxRetries: 3
+        idleTimeout: 90s
+    outlierDetection:
+      consecutive5xxErrors: 5
+      interval: 15s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 50
+      minHealthPercent: 30
+  subsets:
+    - name: stable
+      labels:
+        app: audit-service
+    - name: canary
+      labels:
+        app: audit-service
+        version: canary
+
+---
+# Destination Rule — api-gateway
+apiVersion: networking.istio.io/v1beta1
+kind: DestinationRule
+metadata:
+  name: api-gateway-dr
+  namespace: ecommerce-ciam
+  labels:
+    app: api-gateway
+    app.kubernetes.io/part-of: ecommerce-ciam
+spec:
+  host: api-gateway
+  trafficPolicy:
+    tls:
+      mode: ISTIO_MUTUAL
+    connectionPool:
+      tcp:
+        maxConnections: 1000
+        connectTimeout: 5s
+        tcpKeepalive:
+          time: 7200s
+          interval: 75s
+      http:
+        http1MaxPendingRequests: 500
+        http2MaxRequests: 2000
+        maxRequestsPerConnection: 200
+        maxRetries: 3
+        idleTimeout: 60s
+        h2UpgradePolicy: UPGRADE
+    outlierDetection:
+      consecutive5xxErrors: 5
+      consecutiveGatewayErrors: 3
+      interval: 10s
+      baseEjectionTime: 30s
+      maxEjectionPercent: 33
+      minHealthPercent: 66
+  subsets:
+    - name: stable
+      labels:
+        app: api-gateway
+    - name: canary
+      labels:
+        app: api-gateway
+        version: canary

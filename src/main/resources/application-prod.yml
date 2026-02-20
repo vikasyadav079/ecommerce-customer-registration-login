@@ -1,0 +1,61 @@
+# =============================================
+# Production Profile
+# =============================================
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT:5432}/${DB_NAME:ecommerce_db}
+    username: ${DB_USER}
+    password: ${DB_PASSWORD}
+    hikari:
+      maximum-pool-size: 50
+      minimum-idle: 10
+      connection-timeout: 5000
+      leak-detection-threshold: 30000
+
+  jpa:
+    hibernate:
+      ddl-auto: none
+    show-sql: false
+
+  flyway:
+    clean-disabled: true
+
+  data:
+    redis:
+      cluster:
+        nodes: ${REDIS_CLUSTER_NODES}
+      password: ${REDIS_PASSWORD}
+      lettuce:
+        pool:
+          max-active: 32
+          max-idle: 16
+          min-idle: 4
+
+app:
+  security:
+    jwt:
+      public-key: ${JWT_PUBLIC_KEY_PATH}
+      private-key: ${JWT_PRIVATE_KEY_PATH}
+      issuer: ecommerce-ciam
+      access-token-expiry: 15m
+      refresh-token-expiry: 7d
+    cors:
+      allowed-origins:
+        - https://www.ecommerce.com
+        - https://*.ecommerce.com
+
+server:
+  tomcat:
+    max-threads: 200
+    accept-count: 100
+
+management:
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    root: WARN
+    org.example: INFO

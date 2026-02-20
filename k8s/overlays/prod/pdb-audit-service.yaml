@@ -1,0 +1,16 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: audit-service-pdb
+  namespace: ecommerce-ciam
+  labels:
+    app: audit-service
+    app.kubernetes.io/name: audit-service
+    app.kubernetes.io/component: audit
+    app.kubernetes.io/part-of: ecommerce-ciam
+    environment: prod
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: audit-service

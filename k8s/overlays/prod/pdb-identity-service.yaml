@@ -1,0 +1,18 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: identity-service-pdb
+  namespace: ecommerce-ciam
+  labels:
+    app: identity-service
+    app.kubernetes.io/name: identity-service
+    app.kubernetes.io/component: identity
+    app.kubernetes.io/part-of: ecommerce-ciam
+    environment: prod
+spec:
+  # Always keep at least 3 pods available during voluntary disruptions
+  # Allows rolling updates and node maintenance with minimal impact
+  minAvailable: 3
+  selector:
+    matchLabels:
+      app: identity-service

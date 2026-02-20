@@ -1,0 +1,244 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-service
+  namespace: ecommerce-ciam
+  labels:
+    app: audit-service
+    app.kubernetes.io/name: audit-service
+    app.kubernetes.io/component: audit
+    app.kubernetes.io/part-of: ecommerce-ciam
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: audit-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: audit-service
+        app.kubernetes.io/name: audit-service
+        app.kubernetes.io/component: audit
+        app.kubernetes.io/part-of: ecommerce-ciam
+        version: "1.0.0"
+      annotations:
+        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/proxyCPU: "50m"
+        sidecar.istio.io/proxyMemory: "64Mi"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/actuator/prometheus"
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      serviceAccountName: audit-service-sa
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 60
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - audit-service
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: audit-service
+          image: ecommerce-ciam/audit-service:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "kubernetes,prod"
+            - name: SPRING_APPLICATION_NAME
+              value: "audit-service"
+            - name: SERVER_PORT
+              value: "8080"
+            - name: MANAGEMENT_SERVER_PORT
+              value: "8081"
+            - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
+              value: "true"
+
+            # JVM Options
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseZGC
+                -XX:+ZGenerational
+                -Xms512m
+                -Xmx1536m
+                -XX:MaxMetaspaceSize=128m
+                -XX:+ExitOnOutOfMemoryError
+                -Djava.security.egd=file:/dev/./urandom
+
+            # Database — dedicated audit DB for compliance/immutability
+            - name: SPRING_DATASOURCE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: audit-service-db-secret
+                  key: url
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: audit-service-db-secret
+                  key: username
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: audit-service-db-secret
+                  key: password
+            - name: SPRING_DATASOURCE_HIKARI_MAXIMUM_POOL_SIZE
+              value: "10"
+            - name: SPRING_DATASOURCE_HIKARI_MINIMUM_IDLE
+              value: "2"
+
+            # Kafka — audit service consumes all domain events
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: audit-service-kafka-secret
+                  key: bootstrap-servers
+            - name: SPRING_KAFKA_CONSUMER_GROUP_ID
+              value: "audit-service-group"
+            - name: SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET
+              value: "earliest"
+            - name: SPRING_KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: "500"
+            - name: SPRING_KAFKA_CONSUMER_ISOLATION_LEVEL
+              value: "read_committed"
+
+            # Audit Configuration
+            - name: AUDIT_RETENTION_DAYS
+              value: "2555"
+            - name: AUDIT_ENCRYPTION_ENABLED
+              value: "true"
+            - name: AUDIT_ENCRYPTION_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: audit-service-encryption-secret
+                  key: key-id
+                  optional: true
+            - name: AUDIT_TAMPER_DETECTION_ENABLED
+              value: "true"
+            - name: AUDIT_HASH_ALGORITHM
+              value: "SHA-256"
+
+            # Elasticsearch for audit search (optional)
+            - name: AUDIT_SEARCH_ENABLED
+              value: "true"
+            - name: SPRING_ELASTICSEARCH_URIS
+              valueFrom:
+                secretKeyRef:
+                  name: audit-service-elasticsearch-secret
+                  key: uris
+                  optional: true
+
+            # Pod metadata
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 25
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 20
+
+          volumeMounts:
+            - name: tmp-dir
+              mountPath: /tmp
+            - name: logs-dir
+              mountPath: /app/logs
+
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - sleep 10
+
+      volumes:
+        - name: tmp-dir
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: logs-dir
+          emptyDir:
+            sizeLimit: 1Gi
+
+      imagePullSecrets:
+        - name: registry-credentials

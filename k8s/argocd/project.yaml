@@ -1,0 +1,151 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: ecommerce-ciam
+  namespace: argocd
+  labels:
+    app.kubernetes.io/part-of: ecommerce-ciam
+  # Finalizer prevents accidental project deletion while applications exist
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: "ECommerce Customer Identity and Access Management platform — manages identity, session, risk, notification, and audit services"
+
+  # Git repositories this project is allowed to deploy from
+  sourceRepos:
+    - "https://github.com/your-org/ecommerce-ciam.git"
+    - "https://charts.ecommerce-ciam.example.com/*"
+
+  # Destination clusters and namespaces
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: ecommerce-ciam-dev
+    - server: https://kubernetes.default.svc
+      namespace: ecommerce-ciam-staging
+    - server: https://kubernetes.default.svc
+      namespace: ecommerce-ciam
+    # Production cluster (if separate)
+    - server: https://prod-cluster.ecommerce-ciam.example.com
+      namespace: ecommerce-ciam
+
+  # Cluster-scoped resources this project can manage
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: "networking.istio.io"
+      kind: Gateway
+
+  # Namespace-scoped resources allowed
+  namespaceResourceWhitelist:
+    - group: "apps"
+      kind: Deployment
+    - group: "apps"
+      kind: ReplicaSet
+    - group: "apps"
+      kind: StatefulSet
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: ServiceAccount
+    - group: "autoscaling"
+      kind: HorizontalPodAutoscaler
+    - group: "policy"
+      kind: PodDisruptionBudget
+    - group: "networking.istio.io"
+      kind: VirtualService
+    - group: "networking.istio.io"
+      kind: DestinationRule
+    - group: "security.istio.io"
+      kind: PeerAuthentication
+    - group: "security.istio.io"
+      kind: AuthorizationPolicy
+    - group: "argoproj.io"
+      kind: Rollout
+    - group: "argoproj.io"
+      kind: AnalysisTemplate
+    - group: "argoproj.io"
+      kind: AnalysisRun
+
+  # Namespace-scoped resources blacklisted (prevent privilege escalation)
+  namespaceResourceBlacklist:
+    - group: ""
+      kind: ResourceQuota
+    - group: ""
+      kind: LimitRange
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRole
+    - group: "rbac.authorization.k8s.io"
+      kind: ClusterRoleBinding
+
+  # Role definitions for project access control
+  roles:
+    - name: dev-deployer
+      description: "Developers — can sync dev environment, read staging"
+      policies:
+        - p, proj:ecommerce-ciam:dev-deployer, applications, get, ecommerce-ciam/*, allow
+        - p, proj:ecommerce-ciam:dev-deployer, applications, sync, ecommerce-ciam/*-dev, allow
+        - p, proj:ecommerce-ciam:dev-deployer, applications, action/apps/Deployment/restart, ecommerce-ciam/*-dev, allow
+      groups:
+        - ecommerce-ciam-developers
+
+    - name: staging-deployer
+      description: "CI/CD pipeline — can sync staging environment"
+      policies:
+        - p, proj:ecommerce-ciam:staging-deployer, applications, get, ecommerce-ciam/*, allow
+        - p, proj:ecommerce-ciam:staging-deployer, applications, sync, ecommerce-ciam/*-staging, allow
+        - p, proj:ecommerce-ciam:staging-deployer, applications, override, ecommerce-ciam/*-staging, allow
+      groups:
+        - ecommerce-ciam-ci-pipeline
+
+    - name: prod-deployer
+      description: "Release engineers — can sync production with approval"
+      policies:
+        - p, proj:ecommerce-ciam:prod-deployer, applications, get, ecommerce-ciam/*, allow
+        - p, proj:ecommerce-ciam:prod-deployer, applications, sync, ecommerce-ciam/*-prod, allow
+        - p, proj:ecommerce-ciam:prod-deployer, applications, action/apps/Deployment/restart, ecommerce-ciam/*-prod, allow
+      groups:
+        - ecommerce-ciam-release-engineers
+
+    - name: admin
+      description: "Platform team — full access to all environments"
+      policies:
+        - p, proj:ecommerce-ciam:admin, applications, *, ecommerce-ciam/*, allow
+      groups:
+        - ecommerce-ciam-platform-team
+
+  # Sync windows — restrict production deployments to business hours
+  syncWindows:
+    - kind: allow
+      schedule: "0 9 * * 1-5"     # Mon–Fri 09:00 UTC
+      duration: 8h
+      applications:
+        - "*-prod"
+      manualSync: true
+
+    - kind: allow
+      schedule: "0 0 * * *"       # Always open for dev/staging
+      duration: 24h
+      applications:
+        - "*-dev"
+        - "*-staging"
+      manualSync: true
+
+    - kind: deny
+      schedule: "0 0 * * 5"       # Deny Friday auto-sync to prod
+      duration: 72h
+      applications:
+        - "*-prod"
+      manualSync: false            # Manual override still allowed
+
+  # Orphaned resource monitoring — alert if resources exist outside of ArgoCD management
+  orphanedResources:
+    warn: true
+    ignore:
+      - group: ""
+        kind: Secret
+        name: "*"
+      - group: ""
+        kind: ConfigMap
+        name: "kube-root-ca.crt"

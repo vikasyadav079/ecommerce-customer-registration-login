@@ -1,0 +1,254 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: ecommerce-ciam
+  labels:
+    app: notification-service
+    app.kubernetes.io/name: notification-service
+    app.kubernetes.io/component: notification
+    app.kubernetes.io/part-of: ecommerce-ciam
+    app.kubernetes.io/version: "1.0.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: notification-service
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: notification-service
+        app.kubernetes.io/name: notification-service
+        app.kubernetes.io/component: notification
+        app.kubernetes.io/part-of: ecommerce-ciam
+        version: "1.0.0"
+      annotations:
+        sidecar.istio.io/inject: "true"
+        sidecar.istio.io/proxyCPU: "50m"
+        sidecar.istio.io/proxyMemory: "64Mi"
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8081"
+        prometheus.io/path: "/actuator/prometheus"
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "true"
+    spec:
+      serviceAccountName: notification-service-sa
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchExpressions:
+                    - key: app
+                      operator: In
+                      values:
+                        - notification-service
+                topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: notification-service
+          image: ecommerce-ciam/notification-service:1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8080
+              protocol: TCP
+            - name: management
+              containerPort: 8081
+              protocol: TCP
+
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            runAsGroup: 1001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "1"
+              memory: 2Gi
+
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: "kubernetes,prod"
+            - name: SPRING_APPLICATION_NAME
+              value: "notification-service"
+            - name: SERVER_PORT
+              value: "8080"
+            - name: MANAGEMENT_SERVER_PORT
+              value: "8081"
+            - name: MANAGEMENT_ENDPOINT_HEALTH_PROBES_ENABLED
+              value: "true"
+
+            # JVM Options
+            - name: JAVA_OPTS
+              value: >-
+                -XX:+UseZGC
+                -XX:+ZGenerational
+                -Xms512m
+                -Xmx1536m
+                -XX:MaxMetaspaceSize=128m
+                -XX:+ExitOnOutOfMemoryError
+                -Djava.security.egd=file:/dev/./urandom
+
+            # Kafka — notification service consumes events and produces delivery receipts
+            - name: SPRING_KAFKA_BOOTSTRAP_SERVERS
+              valueFrom:
+                secretKeyRef:
+                  name: notification-service-kafka-secret
+                  key: bootstrap-servers
+            - name: SPRING_KAFKA_CONSUMER_GROUP_ID
+              value: "notification-service-group"
+            - name: SPRING_KAFKA_CONSUMER_AUTO_OFFSET_RESET
+              value: "earliest"
+            - name: SPRING_KAFKA_CONSUMER_MAX_POLL_RECORDS
+              value: "100"
+
+            # Email (SMTP / SendGrid)
+            - name: NOTIFICATION_EMAIL_PROVIDER
+              value: "sendgrid"
+            - name: NOTIFICATION_SENDGRID_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: notification-service-sendgrid-secret
+                  key: api-key
+            - name: NOTIFICATION_EMAIL_FROM_ADDRESS
+              value: "noreply@ecommerce-ciam.example.com"
+            - name: NOTIFICATION_EMAIL_FROM_NAME
+              value: "ECommerce CIAM"
+
+            # SMS (Twilio)
+            - name: NOTIFICATION_SMS_PROVIDER
+              value: "twilio"
+            - name: NOTIFICATION_TWILIO_ACCOUNT_SID
+              valueFrom:
+                secretKeyRef:
+                  name: notification-service-twilio-secret
+                  key: account-sid
+            - name: NOTIFICATION_TWILIO_AUTH_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: notification-service-twilio-secret
+                  key: auth-token
+            - name: NOTIFICATION_TWILIO_FROM_NUMBER
+              valueFrom:
+                secretKeyRef:
+                  name: notification-service-twilio-secret
+                  key: from-number
+
+            # Push Notifications (Firebase)
+            - name: NOTIFICATION_PUSH_PROVIDER
+              value: "firebase"
+            - name: NOTIFICATION_FIREBASE_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: notification-service-firebase-secret
+                  key: project-id
+                  optional: true
+            - name: NOTIFICATION_FIREBASE_CREDENTIALS_JSON
+              valueFrom:
+                secretKeyRef:
+                  name: notification-service-firebase-secret
+                  key: credentials-json
+                  optional: true
+
+            # Template service
+            - name: NOTIFICATION_TEMPLATE_CACHE_TTL_MINUTES
+              value: "60"
+
+            # Pod metadata
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+
+          readinessProbe:
+            httpGet:
+              path: /actuator/health/readiness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 25
+            periodSeconds: 10
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          livenessProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 45
+            periodSeconds: 15
+            timeoutSeconds: 5
+            successThreshold: 1
+            failureThreshold: 3
+
+          startupProbe:
+            httpGet:
+              path: /actuator/health/liveness
+              port: management
+              scheme: HTTP
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 20
+
+          volumeMounts:
+            - name: tmp-dir
+              mountPath: /tmp
+            - name: logs-dir
+              mountPath: /app/logs
+            - name: templates-dir
+              mountPath: /app/templates
+              readOnly: true
+
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - sh
+                  - -c
+                  - sleep 5
+
+      volumes:
+        - name: tmp-dir
+          emptyDir:
+            sizeLimit: 256Mi
+        - name: logs-dir
+          emptyDir:
+            sizeLimit: 512Mi
+        - name: templates-dir
+          configMap:
+            name: notification-templates
+            optional: true
+
+      imagePullSecrets:
+        - name: registry-credentials

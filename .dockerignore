@@ -1,0 +1,13 @@
+target/
+.idea/
+.git/
+docs/
+*.md
+*.iml
+.env
+.dockerignore
+docker-compose*.yml
+terraform/
+k8s/
+monitoring/
+performance-tests/

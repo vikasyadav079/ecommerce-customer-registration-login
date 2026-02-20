@@ -1,0 +1,40 @@
+# =============================================
+# Development Profile
+# =============================================
+
+spring:
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:ecommerce_db}
+    username: ${DB_USER:postgres}
+    password: ${DB_PASSWORD:postgres}
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    show-sql: true
+
+  flyway:
+    clean-disabled: false
+
+# Security — dev RSA key pair from classpath
+app:
+  security:
+    jwt:
+      public-key: classpath:keys/dev-public.pem
+      private-key: classpath:keys/dev-private.pem
+      issuer: ecommerce-ciam-dev
+      access-token-expiry: 15m
+      refresh-token-expiry: 7d
+    cors:
+      allowed-origins:
+        - http://localhost:3000
+        - http://localhost:5173
+
+logging:
+  level:
+    org.example: DEBUG
+    org.springframework.web: DEBUG
+    org.hibernate.SQL: DEBUG

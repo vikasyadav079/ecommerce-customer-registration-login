@@ -1,0 +1,43 @@
+{
+  "dashboard": {
+    "title": "Security",
+    "uid": "security",
+    "tags": ["ecommerce", "security"],
+    "timezone": "UTC",
+    "refresh": "10s",
+    "panels": [
+      {
+        "title": "Account Lockout Rate",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 0},
+        "targets": [
+          {"expr": "rate(auth_account_locked_total[5m])", "legendFormat": "Lockouts/s"}
+        ]
+      },
+      {
+        "title": "Rate Limit Triggers",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 0},
+        "targets": [
+          {"expr": "rate(http_server_requests_seconds_count{status=\"429\"}[5m])", "legendFormat": "429 Rate Limited/s"}
+        ]
+      },
+      {
+        "title": "Failed Login Attempts",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 0, "y": 8},
+        "targets": [
+          {"expr": "rate(auth_login_failed_total[5m])", "legendFormat": "Failed Logins/s"}
+        ]
+      },
+      {
+        "title": "Suspicious Activity (by type)",
+        "type": "timeseries",
+        "gridPos": {"h": 8, "w": 12, "x": 12, "y": 8},
+        "targets": [
+          {"expr": "rate(auth_suspicious_activity_total[5m])", "legendFormat": "{{type}}"}
+        ]
+      }
+    ]
+  }
+}
