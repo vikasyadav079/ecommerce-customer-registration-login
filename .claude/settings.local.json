@@ -38,7 +38,8 @@
       "Bash(\"D:/Workspace/IntellijProjects/ECommerce/src/main/java/org/example/audit/event/package-info.java\":*)",
       "Bash(test:*)",
       "Bash(echo:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(git:*)"
     ]
   }
 }
